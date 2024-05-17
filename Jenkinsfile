@@ -2,57 +2,44 @@ def node = 'dev_agent_157.245.105.84'
 def dockerImageName = 'dymlabs/dev-angular-project'
 
 pipeline {
-    agent {
-        label node
-    }
-    stages {
-        stage('Checkout') {
-            steps {
-                // Checkout the source code from SCM (e.g., Git)
-                git 'https://github.com/ChetanYours/Angular-Projects.git'
-            }
-        }
-        stage('Install Dependencies') {
-            steps {
-                // Use Node.js image to install dependencies
-                container('nodejs') {
-                    sh 'npm install'
+        agent any
+        stages {
+            stage("build") {
+                steps {
+                    echo 'Base PF Building start'
+                    withCredentials([gitUsernamePassword(credentialsId: 'd47f92c8-d944-42be-bf04-261048ff4c71', gitToolName: 'git-tool')]) {
+			                  sh 'git tag t_${BUILD_NUMBER}'
+                        sh 'git push origin t_${BUILD_NUMBER}'
+		            }
+                    dir('.'){
+                        sh 'taskset -c 1 npm i'
+                        sh 'taskset -c 1 npx ng build --prod --build-optimizer'     
+                    }
+                    echo 'Base PF Building end'
+                    //sh 'printenv'
+                    //echo env.GIT_BRANCH
                 }
-            }
-        }
-        stage('Build') {
-            steps {
-                // Use Node.js image to build Angular project
-                container('nodejs') {
-                    sh 'npm run build'
-                }
-            }
-        }
+            } // end build
 
-        stage('Run Docker Container') {
-            steps {
-                // Use Docker to run the Docker container
-                sh 'docker run -d -p 8080:80 angular-app'
-            }
-        }
-
-        stage('Publish Artifacts') {
-            steps {
-                // Archive the built artifacts (dist folder)
-                archiveArtifacts 'dist/**'
-            }
-        }
-    }
-
-    post {
-        success {
-            // Trigger deployment or other post-build actions
-            echo 'Build successful! Ready for deployment.'
-        }
-
-        failure {
-            // Handle failure cases
-            echo 'Build failed! Please check the build logs for errors.'
-        }
-    }
+			stage("docker build") {
+		    	steps {
+			    	echo 'docker build start'
+                    sh 'docker images | grep dymlabs/iot-web | tr -s " " | cut -d " " -f 3 | xargs -I {} docker rmi -f {}'
+				            sh 'docker build -t dymlabs/iot-web -t dymlabs/iot-web:t_${BUILD_NUMBER} .'
+				            echo 'docker build end ..'
+			    }
+		    }
+            
+            stage("docker push") {
+            	steps {
+		            echo 'docker push start'
+                    withCredentials([usernamePassword(credentialsId: 'dockerHub', usernameVariable: 'Username', passwordVariable: 'Password')]) {
+			            sh 'docker login -u $Username -p $Password'
+		            }
+		            sh 'docker push --all-tags dymlabs/iot-web'
+		            echo 'docker push end'
+	        }
 }
+            
+        } // end stages
+    }
